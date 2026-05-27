@@ -184,6 +184,77 @@ SENSITIVE_PATH_PATTERNS = [
     ("包管理凭据", (".gradle", "gradle.properties")),
 ]
 
+COMMON_PATH_TEMPLATES = {
+    "windows": [
+        "%USERPROFILE%\\.ssh",
+        "%USERPROFILE%\\.aws",
+        "%USERPROFILE%\\.azure",
+        "%USERPROFILE%\\.kube",
+        "%USERPROFILE%\\.docker",
+        "%USERPROFILE%\\.git-credentials",
+        "%USERPROFILE%\\.npmrc",
+        "%USERPROFILE%\\.pypirc",
+        "%USERPROFILE%\\AppData\\Local\\Google\\Chrome\\User Data",
+        "%USERPROFILE%\\AppData\\Local\\Microsoft\\Edge\\User Data",
+        "%USERPROFILE%\\AppData\\Local\\BraveSoftware\\Brave-Browser\\User Data",
+        "%APPDATA%\\Mozilla\\Firefox\\Profiles",
+        "%APPDATA%\\Microsoft\\Credentials",
+        "%LOCALAPPDATA%\\Microsoft\\Credentials",
+        "%APPDATA%\\Microsoft\\Protect",
+        "%LOCALAPPDATA%\\Microsoft\\Vault",
+        "%APPDATA%\\Microsoft\\Windows\\PowerShell\\PSReadLine",
+        "%APPDATA%\\FileZilla",
+        "%APPDATA%\\mRemoteNG",
+        "%APPDATA%\\WinSCP.ini",
+        "%WINDIR%\\System32\\config",
+        "%WINDIR%\\NTDS",
+    ],
+    "linux": [
+        "$HOME/.ssh",
+        "$HOME/.gnupg",
+        "$HOME/.aws",
+        "$HOME/.azure",
+        "$HOME/.config/gcloud",
+        "$HOME/.kube",
+        "$HOME/.docker",
+        "$HOME/.git-credentials",
+        "$HOME/.npmrc",
+        "$HOME/.pypirc",
+        "$HOME/.pgpass",
+        "$HOME/.my.cnf",
+        "$HOME/.config/google-chrome",
+        "$HOME/.config/chromium",
+        "$HOME/.config/BraveSoftware/Brave-Browser",
+        "$HOME/.mozilla/firefox",
+        "$HOME/.local/share/keyrings",
+        "$HOME/.config/filezilla",
+        "/etc/shadow",
+        "/etc/passwd",
+        "/etc/ssh",
+        "/root/.ssh",
+        "/root/.aws",
+        "/var/lib/kubelet",
+    ],
+    "macos": [
+        "$HOME/.ssh",
+        "$HOME/.gnupg",
+        "$HOME/.aws",
+        "$HOME/.azure",
+        "$HOME/.config/gcloud",
+        "$HOME/.kube",
+        "$HOME/.docker",
+        "$HOME/.git-credentials",
+        "$HOME/.npmrc",
+        "$HOME/.pypirc",
+        "$HOME/Library/Application Support/Google/Chrome",
+        "$HOME/Library/Application Support/Microsoft Edge",
+        "$HOME/Library/Application Support/BraveSoftware/Brave-Browser",
+        "$HOME/Library/Application Support/Firefox/Profiles",
+        "$HOME/Library/Application Support/FileZilla",
+        "$HOME/Library/Keychains",
+    ],
+}
+
 RULES = [
     {
         "id": "weak_password",
@@ -326,6 +397,44 @@ def compile_rules(keyword: str | None = None) -> list[dict[str, object]]:
             }
         )
     return rules
+
+
+def detect_platform() -> str:
+    if sys.platform.startswith("win"):
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "linux"
+
+
+def selected_platforms(platform: str) -> list[str]:
+    if platform == "auto":
+        return [detect_platform()]
+    if platform == "all":
+        return ["windows", "linux", "macos"]
+    return [platform]
+
+
+def expand_path_template(template: str) -> Path:
+    expanded = os.path.expandvars(template)
+    expanded = os.path.expanduser(expanded)
+    return Path(expanded).resolve()
+
+
+def common_sensitive_roots(platform: str, existing_only: bool = True) -> list[Path]:
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for platform_name in selected_platforms(platform):
+        for template in COMMON_PATH_TEMPLATES[platform_name]:
+            path = expand_path_template(template)
+            key = str(path).lower()
+            if key in seen:
+                continue
+            if existing_only and not path.exists():
+                continue
+            roots.append(path)
+            seen.add(key)
+    return roots
 
 
 def should_skip_dir(path: Path, exclude_dirs: set[str]) -> bool:
@@ -623,6 +732,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exclude-dir", help="排除目录名，逗号分隔。")
     parser.add_argument("--exclude-glob", action="append", default=[], help="排除文件通配符，可重复。")
     parser.add_argument("--max-size-mb", type=float, default=5, help="单文件最大大小，默认 5MB。")
+    parser.add_argument(
+        "--platform",
+        choices=["auto", "windows", "linux", "macos", "all"],
+        default="auto",
+        help="常见敏感路径的平台类型，默认 auto。",
+    )
+    parser.add_argument("--common-paths", action="store_true", help="自动追加所选平台的常见敏感路径。")
+    parser.add_argument("--list-common-paths", action="store_true", help="列出所选平台存在的常见敏感路径后退出。")
     parser.add_argument("-t", "--threads", type=int, default=os.cpu_count() or 4, help="线程数。")
     parser.add_argument("-C", "--context", type=int, default=2, help="命中位置上下文行数。")
     parser.add_argument("-k", "--keyword", help="额外自定义关键词。")
@@ -643,13 +760,26 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    common_roots = common_sensitive_roots(args.platform)
+    if args.list_common_paths:
+        if common_roots:
+            print(f"平台 {args.platform} 的已存在常见敏感路径：")
+            for path in common_roots:
+                print(f"  {path}")
+        else:
+            print(f"平台 {args.platform} 未发现已存在的常见敏感路径。")
+        return 0
+
     paths = args.paths
+    if args.common_paths:
+        paths = [*paths, *(str(path) for path in common_roots)]
+
     if not paths:
         user_path = input("请输入要扫描的目录或文件路径：").strip()
         if user_path:
             paths = [user_path]
     if not paths:
-        parser.error("请提供要扫描的路径。")
+        parser.error("请提供要扫描的路径，或使用 --common-paths 自动追加平台常见敏感路径。")
 
     roots = [Path(path).expanduser().resolve() for path in paths]
     missing = [str(path) for path in roots if not path.exists()]
