@@ -78,6 +78,112 @@ DEFAULT_EXCLUDE_DIRS = {
     "venv",
 }
 
+SENSITIVE_FILE_NAMES = {
+    ".aws",
+    ".bash_history",
+    ".dockerconfigjson",
+    ".env",
+    ".esmtprc",
+    ".git-credentials",
+    ".gitconfig",
+    ".kubeconfig",
+    ".my.cnf",
+    ".netrc",
+    ".npmrc",
+    ".pgpass",
+    ".pypirc",
+    ".s3cfg",
+    "accounts.json",
+    "auth.json",
+    "azure.json",
+    "bookmarks",
+    "cert8.db",
+    "cert9.db",
+    "confcons.xml",
+    "config",
+    "config.json",
+    "consolehost_history.txt",
+    "cookies",
+    "cookies.sqlite",
+    "credentials",
+    "credentials.db",
+    "default.rdp",
+    "docker-compose.yml",
+    "dpapi",
+    "filezilla.xml",
+    "gcloud.db",
+    "gradle.properties",
+    "history",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "id_rsa",
+    "key3.db",
+    "key4.db",
+    "kubeconfig",
+    "local state",
+    "login data",
+    "logins.json",
+    "masterkey",
+    "ntds.dit",
+    "passwd",
+    "recentservers.xml",
+    "sam",
+    "security",
+    "service-account.json",
+    "settings.xml",
+    "shadow",
+    "signons.sqlite",
+    "sitemanager.xml",
+    "system",
+    "unattend.xml",
+    "web data",
+    "winscp.ini",
+}
+
+SENSITIVE_FILE_SUFFIXES = {
+    ".kdbx",
+    ".keychain",
+    ".ovpn",
+    ".rdp",
+}
+
+SENSITIVE_PATH_PATTERNS = [
+    ("浏览器凭据", ("google", "chrome", "user data", "login data")),
+    ("浏览器凭据", ("microsoft", "edge", "user data", "login data")),
+    ("浏览器凭据", ("brave-browser", "user data", "login data")),
+    ("浏览器凭据", ("chromium", "user data", "login data")),
+    ("浏览器凭据", ("mozilla", "firefox", "profiles", "logins.json")),
+    ("浏览器凭据", ("mozilla", "firefox", "profiles", "key4.db")),
+    ("浏览器 Cookie", ("google", "chrome", "user data", "cookies")),
+    ("浏览器 Cookie", ("microsoft", "edge", "user data", "cookies")),
+    ("浏览器 Cookie", ("mozilla", "firefox", "profiles", "cookies.sqlite")),
+    ("Windows 凭据", ("microsoft", "credentials")),
+    ("Windows 凭据", ("protect", "s-1-5-")),
+    ("Windows 凭据", ("system32", "config", "sam")),
+    ("Windows 凭据", ("system32", "config", "security")),
+    ("Windows 凭据", ("system32", "config", "system")),
+    ("Windows 域控凭据", ("ntds", "ntds.dit")),
+    ("Linux/macOS 凭据", ("etc", "shadow")),
+    ("Linux/macOS 凭据", (".ssh", "id_rsa")),
+    ("Linux/macOS 凭据", (".ssh", "id_ed25519")),
+    ("Linux/macOS 凭据", (".gnupg", "private-keys-v1.d")),
+    ("云服务凭据", (".aws", "credentials")),
+    ("云服务凭据", (".azure", "azure.json")),
+    ("云服务凭据", (".config", "gcloud")),
+    ("容器/K8s 凭据", (".kube", "config")),
+    ("容器/K8s 凭据", (".docker", "config.json")),
+    ("远程连接凭据", ("filezilla", "sitemanager.xml")),
+    ("远程连接凭据", ("mremoteng", "confcons.xml")),
+    ("远程连接凭据", ("winscp.ini",)),
+    ("数据库凭据", (".pgpass",)),
+    ("数据库凭据", (".my.cnf",)),
+    ("包管理凭据", (".npmrc",)),
+    ("包管理凭据", (".pypirc",)),
+    ("包管理凭据", ("composer", "auth.json")),
+    ("包管理凭据", (".gradle", "gradle.properties")),
+]
+
 RULES = [
     {
         "id": "weak_password",
@@ -226,6 +332,23 @@ def should_skip_dir(path: Path, exclude_dirs: set[str]) -> bool:
     return any(part.lower() in exclude_dirs for part in path.parts)
 
 
+def normalized_path_text(path: Path) -> str:
+    return "/".join(part.lower() for part in path.parts)
+
+
+def sensitive_path_category(path: Path) -> str | None:
+    name = path.name.lower()
+    suffix = path.suffix.lower()
+    path_text = normalized_path_text(path)
+
+    for category, tokens in SENSITIVE_PATH_PATTERNS:
+        if all(token in path_text for token in tokens):
+            return category
+    if name in SENSITIVE_FILE_NAMES or suffix in SENSITIVE_FILE_SUFFIXES:
+        return "敏感文件路径"
+    return None
+
+
 def file_type_key(path: Path) -> str:
     name = path.name.lower()
     if name in DEFAULT_EXTENSIONS:
@@ -234,7 +357,7 @@ def file_type_key(path: Path) -> str:
 
 
 def should_skip_file(path: Path, include_exts: set[str], exclude_globs: list[str]) -> bool:
-    if include_exts and file_type_key(path) not in include_exts:
+    if include_exts and file_type_key(path) not in include_exts and not sensitive_path_category(path):
         return True
     return any(fnmatch.fnmatch(path.name, pattern) or fnmatch.fnmatch(str(path), pattern) for pattern in exclude_globs)
 
@@ -282,12 +405,26 @@ def redact_line(line: str, match_text: str) -> str:
 
 
 def scan_file(path: Path, rules: list[dict[str, object]], context_lines: int, redact: bool) -> list[Finding]:
+    findings: list[Finding] = []
+    path_category = sensitive_path_category(path)
+    if path_category:
+        findings.append(
+            Finding(
+                file=str(path),
+                line=0,
+                rule_id="sensitive_path",
+                category=path_category,
+                severity="medium",
+                match=path.name,
+                context=f"路径命中：{path}",
+            )
+        )
+
     try:
         lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
     except OSError:
-        return []
+        return findings
 
-    findings: list[Finding] = []
     for index, line in enumerate(lines):
         for rule in rules:
             regex = rule["regex"]
