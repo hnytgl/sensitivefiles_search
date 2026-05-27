@@ -9,6 +9,7 @@
 - 自动递归扫描目录，也支持直接扫描单个文件。
 - 默认识别常见敏感文件类型，包括 `.env`、`.npmrc`、`.netrc`、`.kubeconfig`、`.pem`、`.key`、`.tfvars`、`.properties`、`.yaml`、`.json`、`.sql`、`.log` 等。
 - 内置常见敏感路径库，覆盖浏览器、操作系统、SSH/GPG、云厂商、容器/K8s、远程连接、数据库和包管理器等常见凭据保存位置。
+- 支持 Windows、Linux、macOS 平台路径预设，可按平台自动追加常见敏感目录。
 - 内置规则覆盖弱密码、账号密码关键词、API Key、GitHub Token、Slack Token、AWS Access Key、私钥、JWT、数据库连接串、JDBC、IP、邮箱、身份证号、手机号。
 - 支持自定义关键词、扩展名、排除目录、排除通配符和最大文件大小。
 - 支持多线程扫描，适合较大的代码目录。
@@ -40,6 +41,30 @@ python sensitivefiles_search.py /path/to/project --format html -o report.html
 
 ```bash
 python sensitivefiles_search.py . --all-files
+```
+
+扫描当前系统已存在的常见敏感路径：
+
+```bash
+python sensitivefiles_search.py --common-paths
+```
+
+扫描 Windows 常见敏感路径：
+
+```bash
+python sensitivefiles_search.py --common-paths --platform windows
+```
+
+扫描 Linux 常见敏感路径：
+
+```bash
+python sensitivefiles_search.py --common-paths --platform linux
+```
+
+列出当前平台会扫描到的常见敏感路径：
+
+```bash
+python sensitivefiles_search.py --list-common-paths
 ```
 
 指定扩展名：
@@ -78,6 +103,9 @@ python sensitivefiles_search.py . --no-redact
 | `--exclude-dir` | 排除目录名，逗号分隔 |
 | `--exclude-glob` | 排除文件通配符，可重复传入 |
 | `--max-size-mb` | 单文件最大大小，默认 `5` |
+| `--platform` | 常见敏感路径的平台类型：`auto`、`windows`、`linux`、`macos`、`all` |
+| `--common-paths` | 自动追加所选平台已存在的常见敏感路径 |
+| `--list-common-paths` | 列出所选平台已存在的常见敏感路径后退出 |
 | `-t, --threads` | 扫描线程数，默认使用 CPU 核心数 |
 | `-C, --context` | 报告中展示命中上下文行数，默认 `2` |
 | `-k, --keyword` | 额外自定义关键词 |
@@ -88,6 +116,8 @@ python sensitivefiles_search.py . --no-redact
 ## 默认敏感路径覆盖
 
 工具除了按扩展名扫描，还会自动识别常见敏感路径和文件名。即使命中的文件没有扩展名，或者是 SQLite/系统凭据文件，也会纳入扫描并在报告中标记为 `敏感文件路径` 或更具体的分类。
+
+平台路径预设不会无脑扫描不存在的路径，只会追加当前机器上已存在的位置。`--platform auto` 会按当前运行系统选择路径；`--platform all` 会同时尝试 Windows、Linux、macOS 的路径模板。
 
 常见覆盖范围：
 
