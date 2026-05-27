@@ -8,6 +8,7 @@
 
 - 自动递归扫描目录，也支持直接扫描单个文件。
 - 默认识别常见敏感文件类型，包括 `.env`、`.npmrc`、`.netrc`、`.kubeconfig`、`.pem`、`.key`、`.tfvars`、`.properties`、`.yaml`、`.json`、`.sql`、`.log` 等。
+- 内置常见敏感路径库，覆盖浏览器、操作系统、SSH/GPG、云厂商、容器/K8s、远程连接、数据库和包管理器等常见凭据保存位置。
 - 内置规则覆盖弱密码、账号密码关键词、API Key、GitHub Token、Slack Token、AWS Access Key、私钥、JWT、数据库连接串、JDBC、IP、邮箱、身份证号、手机号。
 - 支持自定义关键词、扩展名、排除目录、排除通配符和最大文件大小。
 - 支持多线程扫描，适合较大的代码目录。
@@ -84,6 +85,21 @@ python sensitivefiles_search.py . --no-redact
 | `--quiet` | 减少控制台输出 |
 | `--no-color` | 禁用彩色输出 |
 
+## 默认敏感路径覆盖
+
+工具除了按扩展名扫描，还会自动识别常见敏感路径和文件名。即使命中的文件没有扩展名，或者是 SQLite/系统凭据文件，也会纳入扫描并在报告中标记为 `敏感文件路径` 或更具体的分类。
+
+常见覆盖范围：
+
+- 浏览器：Chrome、Edge、Brave、Chromium、Firefox 的 `Login Data`、`Local State`、`Cookies`、`Web Data`、`logins.json`、`key4.db`、`cookies.sqlite`。
+- Windows：`SAM`、`SYSTEM`、`SECURITY`、`NTDS.dit`、Credential Manager、DPAPI `Protect`、PowerShell `ConsoleHost_history.txt`、`Unattend.xml`。
+- Linux/macOS：`/etc/shadow`、`.ssh/id_rsa`、`.ssh/id_ed25519`、`.ssh/config`、`.gnupg/private-keys-v1.d`、`.bash_history`、`.pgpass`、`.my.cnf`。
+- 云服务：AWS `credentials`、Azure `azure.json`、Google Cloud/gcloud 配置、服务账号 JSON。
+- 容器和 K8s：`.kube/config`、`.docker/config.json`、`docker-compose.yml`。
+- 远程连接工具：FileZilla `sitemanager.xml`、`recentservers.xml`、mRemoteNG `confCons.xml`、WinSCP 配置、RDP 文件、OpenVPN 配置。
+- 开发和包管理：`.npmrc`、`.pypirc`、Maven `settings.xml`、Gradle `gradle.properties`、Composer `auth.json`、Terraform `.tfvars`。
+- 密码库和证书：KeePass `.kdbx`、`.pem`、`.key`、`.crt`、`.cer`、keychain 等。
+
 ## 示例输出
 
 ```text
@@ -110,4 +126,3 @@ python sensitivefiles_search.py . --no-redact
 ```bash
 python -m pytest
 ```
-
