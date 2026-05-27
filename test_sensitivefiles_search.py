@@ -22,11 +22,10 @@ def test_dot_env_file_is_scanned_and_redacted(tmp_path: Path) -> None:
     )
 
     assert total_files == 1
-    assert len(findings) == 1
-    assert findings[0].rule_id == "weak_password"
-    assert findings[0].severity == "high"
-    assert "123456" not in findings[0].match
-    assert "123456" not in findings[0].context
+    weak_password = next(finding for finding in findings if finding.rule_id == "weak_password")
+    assert weak_password.severity == "high"
+    assert "123456" not in weak_password.match
+    assert "123456" not in weak_password.context
 
 
 def test_excluded_directory_is_skipped(tmp_path: Path) -> None:
@@ -49,6 +48,34 @@ def test_excluded_directory_is_skipped(tmp_path: Path) -> None:
 
     assert total_files == 0
     assert findings == []
+
+
+def test_browser_login_data_is_included_without_extension(tmp_path: Path) -> None:
+    login_data = tmp_path / "Google" / "Chrome" / "User Data" / "Default" / "Login Data"
+    login_data.parent.mkdir(parents=True)
+    login_data.write_bytes(b"SQLite format 3\x00")
+
+    files = scanner.iter_files(
+        roots=[tmp_path],
+        include_exts=scanner.DEFAULT_EXTENSIONS,
+        exclude_dirs=scanner.DEFAULT_EXCLUDE_DIRS,
+        exclude_globs=[],
+        max_size=1024 * 1024,
+    )
+
+    assert login_data in files
+
+
+def test_sensitive_path_creates_finding_for_binary_store(tmp_path: Path) -> None:
+    firefox_key = tmp_path / "Mozilla" / "Firefox" / "Profiles" / "abc.default" / "key4.db"
+    firefox_key.parent.mkdir(parents=True)
+    firefox_key.write_bytes(b"\x00\x01\x02")
+
+    findings = scanner.scan_file(firefox_key, scanner.compile_rules(), context_lines=0, redact=True)
+
+    assert findings[0].rule_id == "sensitive_path"
+    assert findings[0].category == "浏览器凭据"
+    assert "key4.db" in findings[0].context
 
 
 def test_json_report_contains_summary(tmp_path: Path) -> None:
@@ -82,4 +109,3 @@ def test_cli_writes_report_and_returns_one_when_findings_exist(tmp_path: Path) -
     assert exit_code == 1
     assert report.exists()
     assert "findings: 1" in report.read_text(encoding="utf-8")
-
