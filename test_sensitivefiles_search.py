@@ -78,6 +78,26 @@ def test_sensitive_path_creates_finding_for_binary_store(tmp_path: Path) -> None
     assert "key4.db" in findings[0].context
 
 
+def test_windows_common_paths_expand_userprofile(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    ssh_dir = tmp_path / ".ssh"
+    ssh_dir.mkdir()
+
+    roots = scanner.common_sensitive_roots("windows")
+
+    assert ssh_dir.resolve() in roots
+
+
+def test_linux_common_paths_expand_home(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    aws_dir = tmp_path / ".aws"
+    aws_dir.mkdir()
+
+    roots = scanner.common_sensitive_roots("linux")
+
+    assert aws_dir.resolve() in roots
+
+
 def test_json_report_contains_summary(tmp_path: Path) -> None:
     report = tmp_path / "report.json"
     finding = scanner.Finding(
